@@ -1,0 +1,93 @@
+ROUTINE GarminHistoryImport [Type=INT]
+GarminHistoryImport	;; Garmin History Files Reader
+	; v1.0.0
+	; written by Ian Wood
+	;
+run(year)	; run report in passed mode
+	s filedirectory="C:\Intersystems\Cache2016\DataFiles\GarminHistory\"
+	k ^track
+	d summary(year)
+	q
+	;
+	;
+summary(year)	; generate summary content report for total file complement
+	;s nam=$ZSE(filedirectory_year_"-09-17-09-38-07*.*")
+	s nam=$ZSE(filedirectory_year_"*.*")
+	k ^wk($j)
+	while nam'="" {    ; loop through all files in holding directory
+	u 0 w !,nam
+	s x=$zu(68,40,1)
+	o nam:"R":5 i '$t u 0 c nam w !!,"file error with file "_nam q
+	s count=0
+	s (inActivities,inLap,inTrack,inTrackPoint,inPosition)=0
+	f  u nam r str q:$zeof  d  u 0
+	. f rec=1:1:$l(str,"<") d
+	. . s substr=$p($p(str,"<",rec),">",1,2)
+	. . q:(substr["TrainingCenterDatabase")!(substr["/TrainingCenterDatabase")
+	. . i substr["Activities" s inActivities=1
+	. . i inActivities d
+	. . . i $e(substr,1,8)="Activity" s Activity=$$getTagParameter(substr) u 0 w !,"Activity,",Activity
+	. . . i $e(substr,1,2)="Id" s Id=$$getTagValue(substr) u 0 w !,"Id,",Id
+	. . . i $e(substr,1,3)="Lap" s LapStartTime=$$getTagParameter(substr) u 0 w !,"Lap Start,",LapStartTime s inLap=1
+	. . . i inLap d
+	. . . . i $e(substr,1,9)="TotalTime" s TotalTime=$$getTagValue(substr) u 0 w !,"Total Time,",TotalTime
+	. . . . i $e(substr,1,8)="Distance" i 'inTrackPoint s Distance=$$getTagValue(substr) u 0 w !,"Total Distance,",Distance
+	. . . . i $e(substr,1,9)="MaximumSp" s MaxSpeed=$$getTagValue(substr) u 0 w !,"Max Speed,",MaxSpeed
+	. . . . i $e(substr,1,8)="Calories" s Calories=$$getTagValue(substr) u 0 w !,"Calories,",Calories
+	. . . . i $e(substr,1,5)="Track" s inTrack=1
+	. . . . i inTrack=1 d
+	. . . . . i $e(substr,1,10)="Trackpoint" s inTrackPoint=1,GoodRecord="Y"
+	. . . . . i inTrackPoint d
+	. . . . . . i $e(substr,1,4)="Time" s Time=$$getTagValue(substr) d
+	. . . . . . . s date=$p(Time,"T",1) s datenum=$zdh(date,3)
+	. . . . . . . s time=$p($p(Time,"T",2),"Z",1) s timenum=$zth(time,3)
+	. . . . . . i $e(substr,1,8)="Position" s inPosition=1
+	. . . . . . i inPosition=1 d
+	. . . . . . . i $e(substr,1,8)="Latitude" s Latitude=$$getTagValue(substr) i Latitude="" s GoodRecord="N"
+	. . . . . . . i $e(substr,1,9)="Longitude" s Longitude=$$getTagValue(substr) i Longitude="" s GoodRecord="N"
+	. . . . . . i substr["/Position" s inPosition=0
+	. . . . . . i $e(substr,1,8)="Altitude" s Altitude=$$getTagValue(substr) i Altitude="" s GoodRecord="N"
+	. . . . . . i $e(substr,1,8)="Distance" s Distance=$$getTagValue(substr) i Distance="" s GoodRecord="N"
+	. . . . . i substr["/Trackpoint" d
+	. . . . . . s inTrackPoint=0
+	. . . . . . s ^track(datenum,timenum)=GoodRecord_"~"_Latitude_"~"_Longitude_"~"_Altitude_"~"_Distance_"~~~~~~"
+	. . . . i substr["/Track" s inTrack=0
+	. . . i substr["/Lap" s inLap=0
+	. . i substr["/Activities" s inActivities=0
+	u 0 c nam
+	; refactor file with absoute values
+	s date="" f  s date=$o(^track(date)) q:date=""  d
+	. s (altChange,distChange,latChange,longChange)=0
+	. s time="" f  s time=$o(^track(date,time)) q:time=""  d
+	. . s rec=^track(date,time)
+	. . s recGood=$p(rec,"~",1)
+	. . q:recGood="N"
+	. . s recLat=$p(rec,"~",2)
+	. . s recLong=$p(rec,"~",3)
+	. . s recAlt=$p(rec,"~",4)
+	. . s recDist=$p(rec,"~",5)
+	. . s lastTime=$o(^track(date,time),-1)
+	. . i lastTime="" s $p(^track(date,time),"~",6,9)="0~0~0~0" q   ; first record for date
+	. . s lastRec=^track(date,lastTime)
+	. . s diffTime=time-lastTime
+	. . s lastLat=$p(lastRec,"~",2),diffLat=recLat-lastLat
+	. . s lastLong=$p(lastRec,"~",3),diffLong=recLong-lastLong
+	. . s lastAlt=$p(lastRec,"~",4),diffAlt=recAlt-lastAlt
+	. . s lastDist=$p(lastRec,"~",5),diffDist=recDist-lastDist
+	. . s $p(^track(date,time),"~",6,10)=diffTime_"~"_diffLat_"~"_diffLong_"~"_diffDist_"~"_diffAlt
+	s nam=$ZSE("")  ; next file in directory
+	}
+	q
+	;
+	; 
+	;
+getTagParameter(substr)	; strip[ out and return a parameter from a tag
+	n str
+	s str=$p($p(substr,"""",2),"""",1)
+	q str
+	;
+	;
+getTagValue(substr)	; strip[ out and return a value form a pair of tags
+	n str
+	s str=$p($p(substr,">",2),"<",1)
+	q str
